@@ -2,125 +2,19 @@ import numpy as np
 import networkx as nx
 from .utils import *
 
-
-class RootRegion():
-    def __init__(self, nodes,nodes_attributes):
-        self.nodes_attributes = nodes_attributes
-        self.nodes = nodes
-
-        self.massCenterX = 0
-        self.massCenterY = 0
-        self.size = 0
-        self.mass = 0
-        self.subregions = []
-
-        self.update_mass_geometry()
-
-    def update_mass_geometry(self):
-        if len(self.nodes) >1:
-            self.mass =0
-            massSumX = 0
-            massSumY = 0
-            for n in self.nodes:
-                self.mass += self.nodes_attributes[n]["mass"]
-                massSumX += self.nodes_attributes[n]["x"] * self.nodes_attributes[n]["mass"]
-                massSumY += self.nodes_attributes[n]["y"] * self.nodes_attributes[n]["mass"]
-            self.massCenterY = massSumY / self.mass
-            self.massCenterX = massSumX / self.mass
-        self.size = -1000000000.0
-        for n in self.nodes:
-            dist = np.sqrt((self.nodes_attributes[n]["x"]-self.massCenterX)**2 + (self.nodes_attributes[n]["x"]-self.massCenterY)**2)
-            self.size = np.max([self.size,2*dist])
-
-    def build_sub_region(self):
-        if len(self.nodes) >1:
-            left_nodes = []
-            right_nodes = []
-            for n in self.nodes:
-                if self.nodes_attributes[n]["x"] < self.massCenterX:
-                    left_nodes.append(n)
-                else:
-                    right_nodes.append(n)
-            top_left_nodes = []
-            bottom_left_nodes = []
-            for n in left_nodes:
-                if self.nodes_attributes[n]["y"] < self.massCenterY:
-                    top_left_nodes.append(n)
-                else:
-                    bottom_left_nodes.append(n)
-
-            top_right_nodes = []
-            bottom_right_nodes = []
-            for n in right_nodes:
-                if self.nodes_attributes[n]["y"] < self.massCenterY:
-                    top_right_nodes.append(n)
-                else:
-                    bottom_right_nodes.append(n)
-
-            for node_grp in [top_right_nodes,top_left_nodes,bottom_right_nodes,bottom_left_nodes]:
-                if len(node_grp) > 0:
-                    if len(node_grp) < len(self.nodes):
-                        self.subregions.append(RootRegion(node_grp,self.nodes_attributes))
-                    else:
-                        for n in node_grp:
-                            self.subregions.append(RootRegion(n,self.nodes_attributes))
-            for region in self.subregions:
-                region.build_sub_region()
-
-
-    def apply_force(self, n, repulsion_funtion:RepulsionForce, barnes_hut_theta):
-        if len(self.nodes) <2 and len(self.subregions) >0:
-            repulsion_funtion.apply_r(self.nodes[0],self.subregions[0],self.nodes_attributes)
-        else:
-            dist = np.sqrt((self.nodes_attributes[n]["x"] - self.massCenterX)**2 + (self.nodes_attributes[n]["y"] - self.massCenterY)**2)
-            if dist * barnes_hut_theta > self.size :
-                repulsion_funtion.apply_r(n,self,self.nodes_attributes)
-            else:
-                for region in self.subregions:
-                    region.apply_force(n, repulsion_funtion, barnes_hut_theta)
-
-
-def factory_repulsion(is_adjust_size, scaling_ratio):
-    if is_adjust_size:
-        return LinRepulsionwithAntiCollision(scaling_ratio)
-    return LinRepulsion(scaling_ratio)
-
-
-def factory_gravity(coefficient):
-    return StrongGravity(coefficient)
-
-
-def attraction_factory(lin_log_mode, distributed, adjust_sizes, coefficient):
-    if adjust_sizes:
-        if lin_log_mode:
-            if distributed:
-                return LogAttractionAntiCollisionDegreeDistributed(coefficient)
-            return LogAttractionAntiCollision(coefficient)
-        else:
-            if distributed:
-                return LinAttractionAntiCollisionDegreeDistributed(coefficient)
-            return LinAttractionAntiCollision(coefficient)
-    else:
-        if lin_log_mode:
-            if distributed:
-                return LogAttractionDegreeDistributed(coefficient)
-            return LogAttraction(coefficient)
-        else:
-            if distributed:
-                return LinAttractionMassDistributed(coefficient)
-            return LinAttraction(coefficient)
+import random
 
 
 class ForceAtlas2(object):
 
     def __init__(self,
                  graph: nx.Graph,
-                 edge_weight_influence: float = 1,
+                 edge_weight_influence: float = 1.,
                  jitter_tolerance: float = 1.0,
-                 scaling_ratio: float = 2,
-                 gravity: float = 1,
-                 speed: float = 1,
-                 speed_efficiency: float = 1,
+                 scaling_ratio: float = 10.,
+                 gravity: float = 1.,
+                 speed: float = 1.,
+                 speed_efficiency: float = 1.,
                  outbound_attraction_distribution: bool = False,
                  adjust_sizes: bool = False,
                  barnes_hut_optimize: bool = False,
@@ -128,7 +22,9 @@ class ForceAtlas2(object):
                  lin_log_mode: bool = False,
                  normalize_edge_weights: bool = False,
                  strong_gravity_mode: bool = False,
-                 n_jobs: int = -1
+                 n_jobs: int = -1,
+                 positions={},
+                 sizes = {}
                  ):
 
         self.root_region = None
@@ -148,10 +44,20 @@ class ForceAtlas2(object):
         self.edge_weight_influence = edge_weight_influence
 
         self.graph = graph
+
+        # if no weight associated to an edge, set its value to min
+        min_weight = np.inf
+        edges_weights = list(nx.get_edge_attributes(self.graph, 'weight').values())
+        if len(edges_weights) == 0:
+            min_weight = 1
+        else:
+            min_weight = np.min(edges_weights)
+        
         for src,tar,attr in self.graph.edges(data=True):
             if not "weight" in attr:
-                self.graph.edges[src,tar]["weight"] = 1
-
+                self.graph.edges[src,tar]["weight"] = min_weight
+        
+        # Initialize node attributes
         self.nodes_attributes = {n: {} for n in self.graph}
 
         for node in self.graph:
@@ -161,22 +67,43 @@ class ForceAtlas2(object):
                 "old_dy": 0,
                 "dx": 0,
                 "dy": 0,
-                "x": np.random.rand()*5,
-                "y": np.random.rand()*5,
-                "size":self.graph.degree(node)
+                "x": np.random.rand()*5 if not node in positions else positions[node][0],
+                "y": np.random.rand()*5 if not node in positions else positions[node][1],
+                "size":1 if not node in sizes else sizes[node]
             }
 
+        # if normalization activated, we pre-compute edge weights' minimum and maximum
         if self.normalize_edge_weights:
             edges_weights = list(nx.get_edge_attributes(self.graph, 'weight').values())
             self.weight_min = np.min(edges_weights)
             self.weight_max = np.max(edges_weights)
 
     def get_positions(self):
+        """
+        Return computed positions of the graph's node using 
+        the ForceAtlas2 algorithm
+
+        Returns
+        -------
+        dict
+            dict with key corresponding to node id and the value corresponding 
+            to its positions in a 2D space
+        """
         positions = {}
         for n in self.graph:
             positions[n] = [self.nodes_attributes[n]["x"],self.nodes_attributes[n]["y"]]
         return positions
+
+
     def iteration(self):
+        """
+        Update the positions of the nodes by applying the Force2Atlas algorithm.
+        In order to exploit the potential of the ForceAtlas2 algorithm, it's common to run
+        multiple times the algorithm
+        """
+
+        # Update nodes attributes by storing previous state information and reinitialize
+        # node mass
         for node in self.graph:
             self.nodes_attributes[node].update({
                 "mass": 1 + self.graph.degree(node),
@@ -185,10 +112,13 @@ class ForceAtlas2(object):
                 "dx": 0,
                 "dy": 0,
             })
+
+        # If Barnes Hut active, initialize root region
         if self.barnes_hut_optimize:
             self.root_region = RootRegion(list(self.graph.nodes()),self.nodes_attributes)
             self.root_region.build_sub_region()
 
+        # If outbound_attraction_distribution active, compensate 
         outbound_compensation = 0
         if self.outbound_attraction_distribution:
             for n in self.graph:
@@ -196,28 +126,32 @@ class ForceAtlas2(object):
 
             outbound_compensation /= len(self.graph)
 
+        # Retrieve correct class for computing repulsion between nodes and apply gravity
         repulsion_function = factory_repulsion(self.adjust_sizes, self.scaling_ratio)
         gravity_function = factory_gravity(self.scaling_ratio) if self.strong_gravity_mode else repulsion_function
 
-        # Repulsion
+        # Apply Repulsion
         if self.barnes_hut_optimize:
             for n in self.graph:
                 self.root_region.apply_force(n, repulsion_function, self.barnes_hut_theta)
         else:
             for n1 in self.graph:
                 for n2 in self.graph:
+                    if n1 == n2:continue
                     repulsion_function.apply(n1, n2,self.nodes_attributes)
 
+        # Apply Gravity
         for n in self.graph:
             try:
                 gravity_function.apply(n,self.gravity/self.scaling_ratio,self.nodes_attributes)
             except:
                 gravity_function.apply_g(n, self.gravity / self.scaling_ratio, self.nodes_attributes)
 
-        # Attraction
+        # Retrieve correct class for computing the attraction between nodes 
         attraction = attraction_factory(self.lin_log_mode, outbound_compensation, self.adjust_sizes,
                                         (outbound_compensation if self.outbound_attraction_distribution else 1))
 
+        # Apply attraction
         if self.edge_weight_influence == 0:
             for src, tar in self.graph.edges():
                 attraction.apply(src,tar,1,self.nodes_attributes)
@@ -231,7 +165,7 @@ class ForceAtlas2(object):
                         attraction.apply(src,tar,w,self.nodes_attributes)
                 else:
                     for src, tar in self.graph.edges():
-                        attraction.apply(src,tar,1,self.nodes_attributes)
+                        attraction.apply(src,tar,1.,self.nodes_attributes)
             else:
                 for src, tar, attr in self.graph.edges(data=True):
                     w = attr['weight']
@@ -242,7 +176,7 @@ class ForceAtlas2(object):
                     for src, tar, attr in self.graph.edges(data=True):
                         w = attr['weight']
                         w = (w - self.weight_min) / (self.weight_max - self.weight_min)
-                        attraction.apply(src,tar,w,self.nodes_attributes)
+                        attraction.apply(src,tar,w**(self.edge_weight_influence),self.nodes_attributes)
                 else:
                     for src, tar in self.graph.edges(data=True):
                         attraction.apply(src,tar,1,self.nodes_attributes)
@@ -251,6 +185,7 @@ class ForceAtlas2(object):
                     w = attr['weight']
                     attraction.apply(src,tar,w**(self.edge_weight_influence),self.nodes_attributes)
 
+        # Adjust speed automatically
         total_swinging = 0.0
         total_effective_traction = 0.0
 
@@ -262,6 +197,9 @@ class ForceAtlas2(object):
             total_effective_traction += self.nodes_attributes[n]["mass"] * 0.5 * np.sqrt(
                 (self.nodes_attributes[n]["old_dx"] + self.nodes_attributes[n]["dx"]) ** 2 + (
                             self.nodes_attributes[n]["old_dy"] + self.nodes_attributes[n]["dy"]) ** 2)
+        
+        # swinging_movement shoud be < to tolerance * convergence moment
+        # optimize jitter tolerance
 
         estimated_optimal_jitter_tolerance = 0.05 * np.sqrt(len(self.graph))
         min_jt = np.sqrt(estimated_optimal_jitter_tolerance)
@@ -274,22 +212,26 @@ class ForceAtlas2(object):
 
         min_speed_efficiency = 0.05
 
-        if (total_swinging / total_effective_traction) > 2:
+        # Protection against erratic behavior
+        if (total_swinging / total_effective_traction) > 2.0:
             if self.speed_efficiency > min_speed_efficiency:
                 self.speed_efficiency *= 0.5
             jt = np.max([jt, self.jitter_tolerance])
 
         target_speed = jt * self.speed_efficiency * total_effective_traction / total_swinging
-
+        
+        # Speed efficiency is how the speed really corresponds to the swinging vs. convergence tradeoff
         if total_swinging > jt * total_effective_traction:
             if self.speed_efficiency > min_speed_efficiency:
                 self.speed_efficiency *= 0.7
             elif self.speed < 1000:
                 self.speed_efficiency *= 1.3
 
+        # but not too much !
         max_rise = 0.5
         self.speed = self.speed + np.min([target_speed - self.speed, max_rise * self.speed])
 
+        # Apply forces to avoid nodes overlapping
         if self.adjust_sizes:
             for n in self.graph:
                 swinging = self.nodes_attributes[n]["mass"] * np.sqrt(
@@ -302,8 +244,8 @@ class ForceAtlas2(object):
                 df = np.sqrt(self.nodes_attributes[n]["dx"] ** 2 + self.nodes_attributes[n]["dy"] ** 2)
                 factor = np.min([factor * df, 10.]) / df
 
-                x = self.nodes_attributes[n]["x"] + self.nodes_attributes[n]["dx"] * factor
-                y = self.nodes_attributes[n]["y"] + self.nodes_attributes[n]["dy"] * factor
+                x = self.nodes_attributes[n]["dx"] * factor
+                y = self.nodes_attributes[n]["dy"] * factor
 
                 self.nodes_attributes[n]["x"] = x
                 self.nodes_attributes[n]["y"] = y

@@ -1,4 +1,9 @@
 import numpy as np
+from numba import jit,vectorize
+from numba.experimental import jitclass
+from numba.typed import Dict,listobject
+from numba import types
+
 
 def euclidean_distance(x,y):
     x_dist = x[0]-y[0]
@@ -11,13 +16,94 @@ class AttractionForce:
         raise NotImplemented
 
 class RepulsionForce:
+
     def apply(self,u,v,node_attributes):
         raise NotImplemented
+
     def apply_r(self,u,region,node_attributes):
         raise NotImplemented
 
     def apply_g(self,u,gravity,node_attributes):
         raise NotImplemented
+
+
+class RootRegion():
+    def __init__(self, nodes,nodes_attributes):
+        self.nodes_attributes = nodes_attributes
+        self.nodes = nodes
+
+        self.massCenterX = 0
+        self.massCenterY = 0
+        self.size = 0
+        self.mass = 0
+        self.subregions = []
+
+        self.update_mass_geometry()
+
+    @jit(nopython=False)
+    def update_mass_geometry(self):
+        if len(self.nodes) >1:
+            self.mass =0
+            massSumX = 0
+            massSumY = 0
+            for n in self.nodes:
+                self.mass += self.nodes_attributes[n]["mass"]
+                massSumX += self.nodes_attributes[n]["x"] * self.nodes_attributes[n]["mass"]
+                massSumY += self.nodes_attributes[n]["y"] * self.nodes_attributes[n]["mass"]
+            self.massCenterY = massSumY / self.mass
+            self.massCenterX = massSumX / self.mass
+        self.size = -1000000000.0
+        for n in self.nodes:
+            dist = np.sqrt((self.nodes_attributes[n]["x"]-self.massCenterX)**2 + (self.nodes_attributes[n]["y"]-self.massCenterY)**2)
+            self.size = np.max([self.size,2*dist])
+
+    @jit(nopython=False)
+    def build_sub_region(self):
+        if len(self.nodes) >1:
+            left_nodes = []
+            right_nodes = []
+            for n in self.nodes:
+                if self.nodes_attributes[n]["x"] < self.massCenterX:
+                    left_nodes.append(n)
+                else:
+                    right_nodes.append(n)
+            top_left_nodes = []
+            bottom_left_nodes = []
+            for n in left_nodes:
+                if self.nodes_attributes[n]["y"] < self.massCenterY:
+                    top_left_nodes.append(n)
+                else:
+                    bottom_left_nodes.append(n)
+
+            top_right_nodes = []
+            bottom_right_nodes = []
+            for n in right_nodes:
+                if self.nodes_attributes[n]["y"] < self.massCenterY:
+                    top_right_nodes.append(n)
+                else:
+                    bottom_right_nodes.append(n)
+
+            for node_grp in [top_right_nodes,top_left_nodes,bottom_right_nodes,bottom_left_nodes]:
+                if len(node_grp) > 0:
+                    if len(node_grp) < len(self.nodes):
+                        self.subregions.append(RootRegion(node_grp,self.nodes_attributes))
+                    else:
+                        for n in node_grp:
+                            self.subregions.append(RootRegion(n,self.nodes_attributes))
+            for region in self.subregions:
+                region.build_sub_region()
+
+
+    def apply_force(self, n, repulsion_funtion:RepulsionForce, barnes_hut_theta):
+        if len(self.nodes) <2 and len(self.subregions) >0:
+            repulsion_funtion.apply_r(self.nodes[0],self.subregions[0],self.nodes_attributes)
+        else:
+            dist = np.sqrt((self.nodes_attributes[n]["x"] - self.massCenterX)**2 + (self.nodes_attributes[n]["y"] - self.massCenterY)**2)
+            if dist * barnes_hut_theta > self.size :
+                repulsion_funtion.apply_r(n,self,self.nodes_attributes)
+            else:
+                for region in self.subregions:
+                    region.apply_force(n, repulsion_funtion, barnes_hut_theta)
 
 
 class LinRepulsion(RepulsionForce):
@@ -245,3 +331,33 @@ class LogAttractionAntiCollisionDegreeDistributed(AttractionForce):
             node_attributes[v]["dx"] -= x_dist * f
             node_attributes[v]["dy"] -= y_dist * f
 
+
+def factory_repulsion(is_adjust_size, scaling_ratio):
+    if is_adjust_size:
+        return LinRepulsionwithAntiCollision(scaling_ratio)
+    return LinRepulsion(scaling_ratio)
+
+
+def factory_gravity(coefficient):
+    return StrongGravity(coefficient)
+
+
+def attraction_factory(lin_log_mode, distributed, adjust_sizes, coefficient):
+    if adjust_sizes:
+        if lin_log_mode:
+            if distributed:
+                return LogAttractionAntiCollisionDegreeDistributed(coefficient)
+            return LogAttractionAntiCollision(coefficient)
+        else:
+            if distributed:
+                return LinAttractionAntiCollisionDegreeDistributed(coefficient)
+            return LinAttractionAntiCollision(coefficient)
+    else:
+        if lin_log_mode:
+            if distributed:
+                return LogAttractionDegreeDistributed(coefficient)
+            return LogAttraction(coefficient)
+        else:
+            if distributed:
+                return LinAttractionMassDistributed(coefficient)
+            return LinAttraction(coefficient)

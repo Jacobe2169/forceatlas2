@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(
-    name='forceatlas2py',
+    name='forceatlas2',
     version='0.1',
     packages=['force_atlas_layout'],
     url='',
