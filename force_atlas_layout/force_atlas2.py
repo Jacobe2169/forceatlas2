@@ -150,11 +150,10 @@ class ForceAtlas2(object):
                         prevent_overlap=self.prevent_overlap,
                     )
                     self.nodes_attributes.apply(n1, n2, factor)
-                    # repulsion_function.apply(n1, n2, self.nodes_attributes)
 
         # Apply Gravity
         for n in self.graph:
-            factor = gravity(self.nodes_attributes[n], gravity=self.gravity,scaling_ratio=self.scaling_ratio,strong_gravity=self.strong_gravity_mode)
+            factor = gravity(self.nodes_attributes[n], gravity=self.gravity/self.scaling_ratio,scaling_ratio=self.scaling_ratio,strong_gravity=self.strong_gravity_mode)
             self.nodes_attributes.apply_g(n, factor)
 
         for src, tar, attr in self.graph.edges(data=True):
@@ -167,7 +166,7 @@ class ForceAtlas2(object):
             factor = attraction(
                 self.nodes_attributes[src],
                 self.nodes_attributes[tar],
-                self.scaling_ratio,
+                outbound_compensation if self.outbound_attraction_distribution else 1,
                 self.lin_log_mode,
                 self.prevent_overlap,
                 weight=w,distributed=self.outbound_attraction_distribution

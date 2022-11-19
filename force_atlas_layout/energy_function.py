@@ -52,16 +52,16 @@ def __attraction(
         + (node_u_coord[1] - node_v_coord[1]) ** 2
     )
     if prevent_overlap:
-        dist = dist - node_u_size - node_v_size
+        dist -= node_u_size - node_v_size
 
     if dist > 0:
-        f = weight * dist
+        f = weight
         if lin_log:
             f = (weight * np.log(1 + dist)) / dist
         if distributed:
             f /= node_u_mass
         return f
-    return 0
+    return 1
 
 
 def repulsion(node_u, node_v, scaling_ratio, prevent_overlap=False):
@@ -93,14 +93,14 @@ def __repulsion(
         + (node_u_coord[1] - node_v_coord[1]) ** 2
     )
     if prevent_overlap:
-        dist = dist - node_u_size - node_v_size
+        dist -= node_u_size - node_v_size
 
     if dist > 0:
         return scaling_ratio * node_u_mass * node_v_mass / dist / dist
     if prevent_overlap and dist <0:
         return 100 * scaling_ratio * node_u_mass * node_v_mass
 
-    return 0
+    return 1
 
 
 def repulsion_region(node_u, region, scaling_ratio, prevent_overlap=False):
@@ -130,15 +130,15 @@ def __repulsion_region(
     if not prevent_overlap:
         if dist > 0:
             return scaling_ratio * mass_node_u * mass_region / dist / dist
-        return 0
+        return 1
 
     factor = scaling_ratio * mass_node_u * mass_region
     if dist > 0:
         return factor / dist / dist
     elif dist <0:
-        return 100 * factor / dist
+        return -factor / dist
         
-    return 0
+    return 1
 
 def gravity(node_u, gravity,scaling_ratio, strong_gravity=False):
     return __gravity(node_u.coord,node_u.mass,scaling_ratio, gravity, strong_gravity)
@@ -151,4 +151,4 @@ def __gravity(node_u_coord,node_u_mass,scaling_ratio,gravity, strong_gravity:boo
         if strong_gravity:
             return scaling_ratio * gravity * node_u_mass
         return gravity * node_u_mass *scaling_ratio /dist
-    return 0
+    return 1
