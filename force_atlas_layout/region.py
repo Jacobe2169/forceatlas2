@@ -5,7 +5,9 @@ from numba import jit, vectorize,njit
 
 
 class RootRegion():
+    REGION_LEFT=2000
     def __init__(self, nodes: list, nodes_attributes):
+        RootRegion.REGION_LEFT-=1
         self.nodes_attributes = nodes_attributes
         self.nodes = nodes
 
@@ -42,6 +44,8 @@ class RootRegion():
 
 
     def build_sub_region(self):
+        if RootRegion.REGION_LEFT <0:
+            return 
         if len(self.nodes) > 1:
             top_left_nodes,bottom_left_nodes,top_right_nodes,bottom_right_nodes = [],[],[],[]
 
@@ -63,22 +67,24 @@ class RootRegion():
                     if len(node_grp) < len(self.nodes):
                         self.subregions.append(RootRegion(node_grp, self.nodes_attributes))
                     else:
-                        for n in node_grp:
-                            self.subregions.append(RootRegion([n], self.nodes_attributes))
+                        self.subregions.append(RootRegion([node_grp[0]], self.nodes_attributes))
+                    #else:
+                    #    for n in node_grp:
+                    #        self.subregions.append(RootRegion([n], self.nodes_attributes))
 
             for region in self.subregions:
                 region.build_sub_region()
 
     def apply_force(self, n, barnes_hut_theta,scaling_ratio,prevent_overlap):
         nu = self.nodes_attributes[n]
-        if len(self.nodes) < 2 and len(self.subregions) > 0:
+        if len(self.nodes) < 2:
             nu = self.nodes_attributes[self.nodes[0]]
             factor = repulsion_region(nu, self.subregions[0], scaling_ratio=scaling_ratio, prevent_overlap=prevent_overlap)
             self.nodes_attributes.apply_r(self.nodes[0],self.subregions[0],factor)
         else:
-            dist = np.sqrt((self.nodes_attributes[n].x - self.massCenterX) ** 2 + (
-                        self.nodes_attributes[n].y - self.massCenterY) ** 2)
-            if dist * barnes_hut_theta > self.size:
+            dist = (self.nodes_attributes[n].x - self.massCenterX) ** 2 + (
+                        self.nodes_attributes[n].y - self.massCenterY) **2
+            if dist * barnes_hut_theta < self.size:#dist * barnes_hut_theta > self.size:
                 factor = repulsion_region(nu,self,scaling_ratio=scaling_ratio,prevent_overlap=prevent_overlap)
                 self.nodes_attributes.apply_r(n,self,factor)
             else:

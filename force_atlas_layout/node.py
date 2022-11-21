@@ -14,6 +14,8 @@ class Node():
 
         self.old_dx = 0
         self.old_dy = 0
+        self.convergence = 1
+        
     @property
     def coord(self):
         return np.array([self.x,self.y])
