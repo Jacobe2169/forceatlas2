@@ -15,7 +15,7 @@ from joblib import Parallel,delayed
 
 class ForceAtlas2(object):
     """
-    Main class that run the ForceAtlas2 algorithm
+    Main class that runs the ForceAtlas2 algorithm
     """
     def __init__(
         self,
