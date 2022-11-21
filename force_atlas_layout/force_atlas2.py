@@ -8,6 +8,7 @@ from .region import RootRegion
 from .energy_function import attraction, repulsion, gravity
 
 import random
+from joblib import Parallel,delayed
 
 
 class ForceAtlas2(object):
@@ -48,7 +49,10 @@ class ForceAtlas2(object):
         self.jitter_tolerance = jitter_tolerance
         self.edge_weight_influence = edge_weight_influence
 
+
         self.graph = graph
+
+        
 
         # if no weight associated to an edge, set its value to min
         min_weight = np.inf
@@ -63,20 +67,22 @@ class ForceAtlas2(object):
                 self.graph.edges[src, tar]["weight"] = min_weight
 
         # Initialize node attributes
-
         self.nodes_attributes = NodeCollection()
 
+        
         for node in self.graph:
             param = {
                 "id": node,
                 "dx": 0,
                 "dy": 0,
                 "mass": 1 + self.graph.degree(node),
-                "x": np.random.rand() if not node in positions else positions[node][0],
-                "y": np.random.rand() if not node in positions else positions[node][1],
+                "x": np.random.rand()*100 if not node in positions else positions[node][0],
+                "y": np.random.rand()*100 if not node in positions else positions[node][1],
                 "size": self.graph.degree(node) if not node in sizes else sizes[node],
             }
             self.nodes_attributes + Node(**param)
+        
+        self.root_region: RootRegion = None
 
         # if normalization activated, we pre-compute edge weights' minimum and maximum
         if self.normalize_edge_weights:
@@ -156,7 +162,7 @@ class ForceAtlas2(object):
             factor = gravity(self.nodes_attributes[n], gravity=self.gravity/self.scaling_ratio,scaling_ratio=self.scaling_ratio,strong_gravity=self.strong_gravity_mode)
             self.nodes_attributes.apply_g(n, factor)
 
-        for src, tar, attr in self.graph.edges(data=True):
+        for src, tar, attr in self.graph.edges(data=True):  # type: ignore
             w = None
             if self.edge_weight_influence > 0:
                 w = attr["weight"]
@@ -189,8 +195,7 @@ class ForceAtlas2(object):
                 * 0.5
                 * np.sqrt(
                     (self.nodes_attributes[n].old_dx + self.nodes_attributes[n].dx) ** 2
-                    + (self.nodes_attributes[n].old_dy + self.nodes_attributes[n].dy)
-                    ** 2
+                    + (self.nodes_attributes[n].old_dy + self.nodes_attributes[n].dy) ** 2
                 )
             )
 
@@ -245,7 +250,7 @@ class ForceAtlas2(object):
                 df = np.sqrt(
                     self.nodes_attributes[n].dx ** 2 + self.nodes_attributes[n].dy ** 2
                 )
-                factor = np.min([factor * df, 10.0]) / df
+                factor = np.min([factor * df, 1.0]) / df
             else:
                 factor = self.speed / (1.0 + np.sqrt(self.speed * swinging))
 

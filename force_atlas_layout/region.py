@@ -64,7 +64,7 @@ class RootRegion():
                         self.subregions.append(RootRegion(node_grp, self.nodes_attributes))
                     else:
                         for n in node_grp:
-                            self.subregions.append(RootRegion(n, self.nodes_attributes))
+                            self.subregions.append(RootRegion([n], self.nodes_attributes))
 
             for region in self.subregions:
                 region.build_sub_region()

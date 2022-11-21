@@ -132,11 +132,10 @@ def __repulsion_region(
             return scaling_ratio * mass_node_u * mass_region / dist / dist
         return 1
 
-    factor = scaling_ratio * mass_node_u * mass_region
-    if dist > 0:
-        return factor / dist / dist
+    if dist >0:
+        return scaling_ratio * mass_node_u * mass_region /dist/dist
     elif dist <0:
-        return -factor / dist
+        return -scaling_ratio*mass_node_u*mass_region/dist
         
     return 1
 
