@@ -55,5 +55,5 @@ class NodeCollection():
         x_dist = nu.x
         y_dist = nu.y 
 
-        self.nodes[u].dx += gravity_factor * x_dist
-        self.nodes[u].dy += gravity_factor * y_dist
+        self.nodes[u].dx -= gravity_factor * x_dist
+        self.nodes[u].dy -= gravity_factor * y_dist

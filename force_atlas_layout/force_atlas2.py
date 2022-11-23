@@ -154,8 +154,8 @@ class ForceAtlas2(object):
     def iteration(self):
         """
         Update the positions of the nodes by applying the Force2Atlas algorithm.
-        In order to exploit the potential of the ForceAtlas2 algorithm, it's common to run
-        multiple times the algorithm
+        In order to exploit the potential of the ForceAtlas2 algorithm, it's common to run the algorithm 
+        multiple times 
         """
 
         # Update nodes attributes by storing previous state information and reinitialize
