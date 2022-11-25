@@ -27,6 +27,13 @@ class NodeCollection():
     def __add__(self, othernode):
         assert type(othernode) == Node
         self.nodes[othernode.id] = othernode
+    
+    def __len__(self):
+        return len(self.nodes)
+    
+    def __iter__(self):
+        for k in self.nodes:
+            yield k,self.nodes[k]
 
     def __getitem__(self, id_):
         return self.nodes[id_]
@@ -53,7 +60,7 @@ class NodeCollection():
     def apply_g(self,u,gravity_factor):
         nu = self.nodes[u]
         x_dist = nu.x
-        y_dist = nu.y 
+        y_dist = nu.y
 
         self.nodes[u].dx -= gravity_factor * x_dist
         self.nodes[u].dy -= gravity_factor * y_dist

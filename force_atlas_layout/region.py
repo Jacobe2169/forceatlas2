@@ -1,13 +1,13 @@
 
 import numpy as np
-from .energy_function import repulsion_region
+from .energy_function import repulsion_region,repulsion
 from numba import jit, vectorize,njit
 
 
 class RootRegion():
     REGION_LEFT=2000
     def __init__(self, nodes: list, nodes_attributes):
-        RootRegion.REGION_LEFT-=1
+        
         self.nodes_attributes = nodes_attributes
         self.nodes = nodes
 
@@ -68,6 +68,7 @@ class RootRegion():
                         self.subregions.append(RootRegion(node_grp, self.nodes_attributes))
                     else:
                         self.subregions.append(RootRegion([node_grp[0]], self.nodes_attributes))
+                    RootRegion.REGION_LEFT-=1
                     #else:
                     #    for n in node_grp:
                     #        self.subregions.append(RootRegion([n], self.nodes_attributes))
@@ -78,16 +79,16 @@ class RootRegion():
     def apply_force(self, n, barnes_hut_theta,scaling_ratio,prevent_overlap):
         nu = self.nodes_attributes[n]
         if len(self.nodes) < 2:
-            nu = self.nodes_attributes[self.nodes[0]]
-            factor = repulsion_region(nu, self.subregions[0], scaling_ratio=scaling_ratio, prevent_overlap=prevent_overlap)
-            self.nodes_attributes.apply_r(self.nodes[0],self.subregions[0],factor)
+            ni = self.nodes_attributes[self.nodes[0]]
+            factor = repulsion(nu, ni, scaling_ratio=scaling_ratio, prevent_overlap=prevent_overlap)
+            self.nodes_attributes.apply_r(n,self.subregions[0],factor)
         else:
-            dist = (self.nodes_attributes[n].x - self.massCenterX) ** 2 + (
-                        self.nodes_attributes[n].y - self.massCenterY) **2
-            if dist * barnes_hut_theta < self.size:#dist * barnes_hut_theta > self.size:
+            dist = (nu.x - self.massCenterX) ** 2 + (nu.y - self.massCenterY) **2
+            if dist * barnes_hut_theta > self.size:#dist * barnes_hut_theta > self.size:
                 factor = repulsion_region(nu,self,scaling_ratio=scaling_ratio,prevent_overlap=prevent_overlap)
                 self.nodes_attributes.apply_r(n,self,factor)
             else:
                 for region in self.subregions:
-                    factor = repulsion_region(nu,region,scaling_ratio=scaling_ratio,prevent_overlap=prevent_overlap)
-                    self.nodes_attributes.apply_r(n,self,factor)
+                    region.apply_force(n,barnes_hut_theta,scaling_ratio,prevent_overlap)
+                    #factor = repulsion_region(nu,region,scaling_ratio=scaling_ratio,prevent_overlap=prevent_overlap)
+                    #self.nodes_attributes.apply_r(n,self,factor)

@@ -5,10 +5,10 @@ from .node import NodeCollection, Node
 
 # from .utils import *
 from .region import RootRegion
-from .energy_function import attraction, repulsion, gravity
-
-import random
+from .energy_function import attraction, repulsion, gravity,adjust_speed
 from joblib import Parallel,delayed
+
+
 
 
 
@@ -24,6 +24,8 @@ class ForceAtlas2(object):
         scaling_ratio: float = 2.0,
         gravity: float = 1.0,
         speed: float = 1.0,
+        speed_efficiency: float =1.0,
+        jitter_tolerance: float=1.0,
         max_force:float = 20.,
         quadtree_maxsize:int = 1000,
         outbound_attraction_distribution: bool = False,
@@ -33,7 +35,6 @@ class ForceAtlas2(object):
         lin_log_mode: bool = False,
         normalize_edge_weights: bool = False,
         strong_gravity_mode: bool = False,
-        n_jobs: int = -1,
         positions={},
         sizes={},
     ):
@@ -71,15 +72,12 @@ class ForceAtlas2(object):
             if True, normalize edge weights. Formula w = (w-min)/(max-min)
         strong_gravity_mode : bool
             enable strong gravity mode
-        n_jobs : int
-            number of thread use in the computation (not implement for now)
         positions : dict
             dictionary containing initial positions for the graph's nodes. Initialized with random values if empty
         sizes : dict
             dictionary that contains each node's size (by default, degree of each node)
         """
         self.root_region = None
-        self.n_jobs = n_jobs
         self.strong_gravity_mode = strong_gravity_mode
         self.normalize_edge_weights = normalize_edge_weights
         self.lin_log_mode = lin_log_mode
@@ -93,6 +91,8 @@ class ForceAtlas2(object):
         self.edge_weight_influence = edge_weight_influence
         self.max_force = max_force
         self.quadtree_maxsize = quadtree_maxsize
+        self.speed_efficiency = speed_efficiency
+        self.jitter_tolerance = jitter_tolerance
 
 
         self.graph = graph
@@ -185,6 +185,11 @@ class ForceAtlas2(object):
 
             outbound_compensation /= len(self.graph)
 
+        def foo(nodes):
+            for n in nodes:
+                self.root_region.apply_force(
+                    n, self.barnes_hut_theta, self.scaling_ratio, self.prevent_overlap
+                )
         # Apply Repulsion
         if self.barnes_hut_optimize:
             for n in self.graph:
@@ -206,9 +211,11 @@ class ForceAtlas2(object):
 
         # Apply Gravity
         for n in self.graph:
-            factor = gravity(self.nodes_attributes[n], gravity=self.gravity/self.scaling_ratio,scaling_ratio=self.scaling_ratio,strong_gravity=self.strong_gravity_mode)
+            factor = gravity(self.nodes_attributes[n], gravity=self.gravity,scaling_ratio=self.scaling_ratio,strong_gravity=self.strong_gravity_mode)
             self.nodes_attributes.apply_g(n, factor)
+       
 
+    
         for src, tar, attr in self.graph.edges(data=True):  # type: ignore
             w = 1
             if self.edge_weight_influence > 0:
@@ -226,36 +233,44 @@ class ForceAtlas2(object):
             )
             self.nodes_attributes.apply(src, tar, factor)
 
-        # Adjust speed automatically
+        """
+        force = Math.sqrt(
+          Math.pow(NodeMatrix[n + NODE_DX], 2) +
+            Math.pow(NodeMatrix[n + NODE_DY], 2)
+        );
+
+        if (force > MAX_FORCE) {
+          NodeMatrix[n + NODE_DX] =
+            (NodeMatrix[n + NODE_DX] * MAX_FORCE) / force;
+          NodeMatrix[n + NODE_DY] =
+            (NodeMatrix[n + NODE_DY] * MAX_FORCE) / force;
+        }
+        """
+        
+        # Adjust speed and apply changes to nodes' position        
+        self.speed = adjust_speed(self.speed,self.nodes_attributes,self.jitter_tolerance,self.speed_efficiency)
         for n in self.graph:
-            force = np.sqrt(self.nodes_attributes[n].dx ** 2 + self.nodes_attributes[n].dy ** 2 )
-            if force > self.max_force:
-                self.nodes_attributes[n].dx = (self.nodes_attributes[n].dx *self.max_force)/force
-                self.nodes_attributes[n].dy = (self.nodes_attributes[n].dy *self.max_force)/force
-
-            swinging = np.sqrt(
-                (self.nodes_attributes[n].old_dx - self.nodes_attributes[n].dx) ** 2
-                + (self.nodes_attributes[n].old_dy - self.nodes_attributes[n].dy) ** 2
-            )* self.nodes_attributes[n].mass
-           
-
-            traction= 0.5* np.sqrt(
-                    (self.nodes_attributes[n].old_dx + self.nodes_attributes[n].dx) ** 2
-                    + (self.nodes_attributes[n].old_dy + self.nodes_attributes[n].dy) ** 2
-                )
+            node_speed=self.speed
+            ni = self.nodes_attributes[n]
             
-            node_speed = 1
+            force = np.sqrt(ni.dx**2 + ni.dy**2)
+            if force > self.max_force:
+                self.nodes_attributes[n].dx = (self.nodes_attributes[n].dx*self.max_force)/force
+                self.nodes_attributes[n].dy = (self.nodes_attributes[n].dy*self.max_force)/force
+
+
+            swinging = np.sqrt((ni.old_dx - ni.dx) **2 + (ni.old_dy - ni.dy)**2)
             if self.prevent_overlap:
-                node_speed = (0.1 * np.log(1 + traction)) / (1 + np.sqrt(swinging))
+                node_speed= self.speed/(1+np.sqrt(self.speed*swinging))
             else:
-                node_speed = self.nodes_attributes[n].convergence * np.log(1+traction)/(1+np.sqrt(swinging))
-                self.nodes_attributes[n].convergence = min(
-                    1, np.sqrt(node_speed*(self.nodes_attributes[n].dx**2 + self.nodes_attributes[n].dy**2)/(1+np.sqrt(swinging)))
-                )
+                node_speed = 0.1 * self.speed / (1.0 + np.sqrt(self.speed * swinging))
+                df = np.sqrt(ni.dx**2 + ni.dy**2)
+                node_speed = min(node_speed*df,10)/df
+
 
             self.nodes_attributes[n].x = (
-                self.nodes_attributes[n].x + self.nodes_attributes[n].dx * node_speed * self.speed
+                self.nodes_attributes[n].x + self.nodes_attributes[n].dx * node_speed 
             )
             self.nodes_attributes[n].y = (
-                self.nodes_attributes[n].y + self.nodes_attributes[n].dy * node_speed * self.speed
+                self.nodes_attributes[n].y + self.nodes_attributes[n].dy * node_speed 
             )
