@@ -1,5 +1,6 @@
 import numpy as np
 import math
+from numba import njit
 
 
 
@@ -25,7 +26,8 @@ def attraction(
         distributed,
     )
 
-
+    
+@njit
 def __attraction(
         node_u_coord,
         node_v_coord,
@@ -38,27 +40,27 @@ def __attraction(
         weight,
         distributed,
 ):
-    weight = 1 if not weight else weight
+
     dist = np.sqrt(
         (node_u_coord[0] - node_v_coord[0]) ** 2
         + (node_u_coord[1] - node_v_coord[1]) ** 2
     )
-    f = 1
+    f = 0
     if prevent_overlap:
         dist -= node_u_size - node_v_size
         if dist > 0:
-            f = (-scaling_ratio * weight)
-            if lin_log:
+            f = (-scaling_ratio * weight) 
+            if lin_log and dist >0:
                 f = f * math.log(1 + dist)
             if distributed:
                 f = f / node_u_mass
     else:
-        if dist > 0:
-            f = (-scaling_ratio * weight)
-            if lin_log:
-                f = f * math.log(1 + dist)
-            if distributed:
-                f = f / node_u_mass
+
+        f = (-scaling_ratio * weight)
+        if lin_log and dist >0 :
+            f = f * math.log(1 + dist)
+        if distributed:
+            f = f / node_u_mass
     return f
 
 
@@ -76,7 +78,7 @@ def repulsion(node_u, node_v, scaling_ratio, prevent_overlap=False):
     )
 
 
-
+@njit
 def __repulsion(
         node_u_coord,
         node_v_coord,
@@ -97,9 +99,9 @@ def __repulsion(
     if dist > 0:
         return scaling_ratio * node_u_mass * node_v_mass / dist / dist
     if prevent_overlap and dist < 0:
-        return 100 * scaling_ratio * node_u_mass * node_v_mass
+        return -scaling_ratio * scaling_ratio * node_u_mass * node_v_mass
 
-    return 1
+    return 0
 
 
 def repulsion_region(node_u, region, scaling_ratio, prevent_overlap=False):
@@ -114,7 +116,7 @@ def repulsion_region(node_u, region, scaling_ratio, prevent_overlap=False):
     )
 
 
-
+@njit
 def __repulsion_region(
         coord_node_u,
         mass_node_u,
@@ -127,29 +129,29 @@ def __repulsion_region(
 
     if not prevent_overlap:
         if dist > 0:
-            return scaling_ratio * (mass_node_u+1) * (mass_region+1) / dist
-        return 1
+            return scaling_ratio * (mass_node_u) * (mass_region) / np.sqrt(dist)/ np.sqrt(dist)
+        return 0
     if prevent_overlap:
         if dist > 0:
-            return scaling_ratio * (mass_node_u+1) * (mass_region+1) / dist
+            return scaling_ratio * (mass_node_u) * (mass_region) /  np.sqrt(dist) / np.sqrt(dist)
         elif dist < 0:
-            return -scaling_ratio * (mass_node_u+1) * (mass_region+1) / np.sqrt(dist)
+            return 100 * (mass_node_u) * (mass_region) / dist
 
-    return 1
+    return 0
 
 
 def gravity(node_u, gravity, scaling_ratio, strong_gravity=False):
     return __gravity(node_u.coord, node_u.mass, scaling_ratio, gravity, strong_gravity)
 
 
-
+@njit
 def __gravity(node_u_coord, node_u_mass, scaling_ratio, gravity, strong_gravity: bool):
     dist = np.sqrt(node_u_coord[0] ** 2 + node_u_coord[1] ** 2)
     if dist > 0:
         if strong_gravity:
-            return scaling_ratio * gravity * (node_u_mass+1)
-        return (gravity * (node_u_mass+1) * scaling_ratio)/dist
-    return 1
+            return scaling_ratio * gravity * (node_u_mass)
+        return (gravity * (node_u_mass) * scaling_ratio)/dist
+    return 0
 
 
 
@@ -173,15 +175,14 @@ def adjust_speed(speed,nodes_attributes,jitter_tolerance=1.0,speed_efficiency=1.
                                     graph_size**2)))
 
     
-    if total_effective_traction and total_swinging / total_effective_traction > 2.0:
+    if total_swinging / total_effective_traction > 2.0:
         if speed_efficiency > min_speed_efficiency:
             speed_efficiency *= .5
         jt = max(jt, jitter_tolerance)
 
     
-    targetSpeed = float('inf')
-    if total_swinging != 0:
-        targetSpeed = jt * speed_efficiency * total_effective_traction / total_swinging
+
+    targetSpeed = jt * speed_efficiency * total_effective_traction / total_swinging
 
     if total_swinging > jt * total_effective_traction:
         if speed_efficiency > min_speed_efficiency:
@@ -191,3 +192,5 @@ def adjust_speed(speed,nodes_attributes,jitter_tolerance=1.0,speed_efficiency=1.
 
     speed += min(targetSpeed - speed, .5 * speed)
     return speed
+
+

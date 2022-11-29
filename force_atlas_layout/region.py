@@ -37,7 +37,7 @@ class RootRegion():
             for n in self.nodes:
                 dist = np.sqrt((self.nodes_attributes[n].x - self.massCenterX) ** 2 + (
                             self.nodes_attributes[n].y - self.massCenterY) ** 2)
-                self.size = np.max([self.size, 2 * dist])
+                self.size = max(self.size, 2 * dist)
 
 
 
@@ -51,12 +51,12 @@ class RootRegion():
 
             for n in self.nodes:
                 if self.nodes_attributes[n].x < self.massCenterX:
-                    if self.nodes_attributes[n].y > self.massCenterY:
+                    if self.nodes_attributes[n].y < self.massCenterY:
                         top_left_nodes.append(n)
                     else:
                         bottom_left_nodes.append(n)
                 else:
-                    if self.nodes_attributes[n].y > self.massCenterY:
+                    if self.nodes_attributes[n].y < self.massCenterY:
                         top_right_nodes.append(n)
                     else:
                         bottom_right_nodes.append(n)
@@ -78,7 +78,7 @@ class RootRegion():
 
     def apply_force(self, n, barnes_hut_theta,scaling_ratio,prevent_overlap):
         nu = self.nodes_attributes[n]
-        if len(self.nodes) < 2:
+        if len(self.nodes) == 1 and len(self.subregions) >0:
             ni = self.nodes_attributes[self.nodes[0]]
             factor = repulsion(nu, ni, scaling_ratio=scaling_ratio, prevent_overlap=prevent_overlap)
             self.nodes_attributes.apply_r(n,self.subregions[0],factor)
