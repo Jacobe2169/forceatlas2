@@ -191,10 +191,12 @@ class ForceAtlas2(object):
 
         # Apply Repulsion
         if self.barnes_hut_optimize:
-            for n in self.graph:
-                self.root_region.apply_force(
-                    n, self.barnes_hut_theta, self.scaling_ratio, self.prevent_overlap
-                )
+            from joblib import Parallel,delayed
+            Parallel(n_jobs=8,backend="threading")(delayed(self.root_region.apply_force)(n, self.barnes_hut_theta, self.scaling_ratio, self.prevent_overlap) for n in self.graph)
+            # for n in self.graph:
+            #     self.root_region.apply_force(
+            #         n, self.barnes_hut_theta, self.scaling_ratio, self.prevent_overlap
+            #     )
         else:
             for n1 in self.graph:
                 nu = self.nodes_attributes[n1]
@@ -212,7 +214,7 @@ class ForceAtlas2(object):
 
         # Apply Gravity
         for n in self.graph:
-            factor = gravity(self.nodes_attributes[n], gravity=self.gravity,scaling_ratio=self.scaling_ratio,strong_gravity=self.strong_gravity_mode)
+            factor = gravity(self.nodes_attributes[n], gravity=self.gravity/self.scaling_ratio,scaling_ratio=self.scaling_ratio,strong_gravity=self.strong_gravity_mode)
             self.nodes_attributes.apply_g(n, factor)
     
         for src, tar, attr in self.graph.edges(data=True):  # type: ignore
